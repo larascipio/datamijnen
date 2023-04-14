@@ -66,11 +66,15 @@ new_df = valid_df.pivot_table(index=['id', 'date'],
 new_df.isnull().sum() / len(new_df) * 100
 
 # Drop columns that contain more than 50% missing values
+new_df['date'].min()
+new_df['date'].max()
 
 
+import missingno as msno
 
-
-
+msno.bar(new_df)
+plt.show()
+msno.matrix(new_df)
 
 
 
@@ -134,26 +138,6 @@ def run_isolation_forest(model_data: pd.DataFrame,
 
 
 
-# For the columns 'activity', 'circumplex.arousal', 'circumplex.valence', 'mood' remove the outliers from the 'new' dataframe
-for i in ['activity', 'circumplex.arousal', 'circumplex.valence', 'mood']:
-    # print(f"Number of outliers in {i}: {run_isolation_forest(new, i)[0]['anomaly'].sum()}")
-    
-    # Get the final cleaned_df after removing outliers for the column 'i'
-    merged_df = run_isolation_forest(new, i)[0]
-    
-    # Only select rows where the 'anomaly' column is 0, like so:
-    cleaned_df = merged_df[merged_df['anomaly'] == 0]
-
-    # Drop the 'anomaly' and 'score' columns
-    cleaned_df = cleaned_df.drop(['anomaly', 'score'], axis=1)
-    
-    new, m_df = run_isolation_forest(new, i)
-
-    
-c_df, m_df = run_isolation_forest(new, 'circumplex.arousal')[0]['anomaly'].sum()
-
-# Only select rows that contain 0 for the 'anomaly' column
-joe = joe[joe['anomaly'] == 0]
 
 # Impute missing values 
 from sklearn.impute import KNNImputer
