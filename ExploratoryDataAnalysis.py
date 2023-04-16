@@ -6,8 +6,8 @@ import seaborn as sns
 import numpy as np
 import pandas as pd
 
-from Preprocessing.preprocessing import print_z_score_limits
-from Preprocessing.preprocessing import remove_outliers
+from Preprocessing.datacleaning import print_z_score_limits
+from Preprocessing.datacleaning import remove_outliers
 
 
 # https://www.machinelearningplus.com/time-series/time-series-analysis-python/#google_vignette
@@ -26,7 +26,7 @@ data =  df.drop(['Unnamed: 0'], axis=1)
 data['time'] = pd.to_datetime(data['time'])
 
 
-# Inspect the dataset
+# Inspect the dataset 
 print(f"Number of records: {len(data)}")
 print(f"Number of attributes: {len(data.columns)}")
 print(f"Attribute types:\n{data.dtypes}")
