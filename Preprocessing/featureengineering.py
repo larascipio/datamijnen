@@ -13,6 +13,12 @@ def feature_engineering(df):
     df['year'] = df['time'].dt.year
     df['weekday'] = df['time'].dt.strftime('%A')
     
+    # Add a column for morning or evening
+    df['morning'] = np.where(df['hour'] < 12, 1, 0)
+
+    # Add a column for weekend or weekday
+    df['weekend'] = np.where(df['weekday'] >= 5, 1, 0)
+    
     # Make a variable for the day of the year
     df['day_of_year'] = df['time'].dt.dayofyear
     
@@ -67,6 +73,34 @@ def feature_engineering(df):
     # Make a variable for the number of days since the last time the value was below 100
     df['days_since_below_100'] = (df['value'] < 100).astype(int).groupby((df['value'] < 100).astype(int).diff().ne(0).cumsum()).cumsum()
     
+    # Add a column for total app usage
+    app_cats = ['appCat.builtin', 'appCat.communication', 'appCat.entertainment', 'appCat.finance', 'appCat.game', 'appCat.office', 'appCat.other', 'appCat.social', 'appCat.travel', 'appCat.unknown', 'appCat.utilities', 'appCat.weather']
+    df['app_usage'] = df[app_cats].sum(axis=1)
+
+    # Add a column for total app usage per day
+    df['app_usage_per_day'] = df.groupby('id')['app_usage'].transform('mean')
+
+    # Add a column for total call duration per day
+    df['call_duration_per_day'] = df.groupby(['id', 'date'])['call'].transform('sum')
+
+    # Add a column for total call duration per week
+    df['call_duration_per_week'] = df.groupby(['id', 'weekend'])['call'].transform('sum')
+
+    # Add a column for total activity per day
+    df['activity_per_day'] = df.groupby('id')['activity'].transform('mean')
+
+    # Add a column for total activity per week
+    df['activity_per_week'] = df.groupby(['id', 'weekend'])['activity'].transform('mean')
+
+    # Add a column for average arousal per day
+    df['arousal_per_day'] = df.groupby('id')['circumplex.arousal'].transform('mean')
+
+    # Add a column for average valence per day
+    df['valence_per_day'] = df.groupby('id')['circumplex.valence'].transform('mean')
+
+    # Add a column for average mood per day
+    df['mood_per_day'] = df.groupby('id')['mood'].transform('mean')
+
     # Return the dataframe with the new features
     return df
     

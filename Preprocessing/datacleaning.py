@@ -225,7 +225,6 @@ class Scaler:
 
 
 
-
 # # Imputing with KNNImputer
 # from sklearn.impute import KNNImputer
 # from sklearn.preprocessing import MinMaxScaler
@@ -277,6 +276,68 @@ class Scaler:
 # for id in missing_values_per_idP.index:
 #     missing_values_per_idP.loc[id].plot(kind='bar', title=f'Percentage of missing values for id {id}')
 #     plt.show()
+
+
+
+
+import pandas as pd
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.metrics import r2_score
+from sklearn.metrics import mean_squared_error
+from ImputeKNN import ImputeKNN
+from ImputeIterative import ImputeIterative
+
+# Define the columns to impute
+cols_to_impute = clean_data.iloc[:,2:].columns
+
+# Create an instance of the KNN Imputation class
+knn_imputer = ImputeKNN(clean_data, cols_to_impute)
+
+# Impute missing values using KNN and join the imputed data to the original DataFrame
+knn_imputed_data = knn_imputer.join2full(clean_data)
+
+# Create an instance of the Iterative Imputation class
+iterative_imputer = ImputeIterative(clean_data, cols_to_impute)
+
+# Impute missing values using Iterative Imputation and join the imputed data to the original DataFrame
+iterative_imputed_data = iterative_imputer.join2full(clean_data)
+
+# Define the feature and target columns for the Random Forest Regressor
+X_cols = [col for col in knn_imputed_data.columns if col not in ['id', 'date', 'mood']]
+y_col = 'mood'
+
+# Split the data into training and testing sets
+train_data = knn_imputed_data.dropna()
+X_train = train_data[X_cols]
+y_train = train_data[y_col]
+test_data = clean_data[clean_data[y_col].notna()]
+X_test = test_data[X_cols]
+y_test = test_data[y_col]
+
+# Fit a Random Forest Regressor using the KNN-imputed data and make predictions on the test data
+rf_knn = RandomForestRegressor(n_estimators=100)
+rf_knn.fit(X_train, y_train)
+y_pred_knn = rf_knn.predict(X_test)
+
+# Fit a Random Forest Regressor using the Iterative Imputed data and make predictions on the test data
+rf_iterative = RandomForestRegressor(n_estimators=100)
+rf_iterative.fit(X_train, y_train)
+y_pred_iterative = rf_iterative.predict(X_test)
+
+# Calculate the R-squared score for the predictions made using the KNN-imputed data
+r2_knn = r2_score(y_test, y_pred_knn)
+mse_knn = mean_squared_error(y_test, y_pred_knn) 
+
+# Calculate the R-squared score for the predictions made using the Iterative Imputed data
+r2_iterative = r2_score(y_test, y_pred_iterative)
+mse_iterative = mean_squared_error(y_test, y_pred_iterative)
+
+# Print the R-squared scores for both imputers
+print(f"R-squared score for KNN-imputed data: {r2_knn}")
+print(f"R-squared score for Iterative Imputed data: {r2_iterative}")
+
+print(f"Mean Squared Error for KNN-imputed data: {mse_knn}")
+print(f"Mean Squared Error for Iterative Imputed data: {mse_iterative}")
 
 
 
