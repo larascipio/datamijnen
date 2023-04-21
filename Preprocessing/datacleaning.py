@@ -44,17 +44,19 @@ def remove_incorrect_values(input_data):
     # Return the valid and removed dataframes
     return valid_df, removed_df
 
-def convert_to_long(input_df):
+def convert_to_wide(input_df):
+    
+    input_dff = input_df.copy()
     
     # Split the time into date and time
-    input_df['date'] = input_df['time'].dt.date
-    input_df['time'] = input_df['time'].dt.time
-
+    input_dff['date'] = input_dff['time'].dt.date
+    input_dff['time'] = input_dff['time'].dt.time
+    
     # Create a new long format dataframe where each row is a unique combination of id and date and the variables are the mean of the values for that day 
-    pivot_df = input_df.pivot_table(index=['id', 'date'], 
-                                columns='variable', 
-                                values='value', 
-                                aggfunc='mean').reset_index()
+    pivot_df = input_dff.pivot_table(index=['id', 'date'], 
+                                    columns='variable', 
+                                    values='value', 
+                                    aggfunc='mean').reset_index()
     return pivot_df
 
 # Isolation Forest to detect anomalies
@@ -123,7 +125,7 @@ class DetectAnomalies:
             plt.scatter(self.anomaly_dict[col]['anomaly_values'], self.anomaly_dict[col]['scores'], color='red')
             plt.scatter(self.non_anomaly_dict[col]['values'], self.non_anomaly_dict[col]['scores'], color='blue')
             plt.xlabel(col)
-            plt.ylabel('anomaly score')
+            plt.ylabel('Anomaly Score')
             plt.show()
 
     def detect_anomalies(self, input_data, columns):
@@ -138,6 +140,20 @@ class DetectAnomalies:
         return anomaly_df, clean_data, self.anomaly_dict
 
 
+# valid_df, removed_df = remove_incorrect_values(data)
+# pivot_df = convert_to_long(valid_df)
+
+
+# # Create an instance of the DetectAnomalies class
+# anomaly_detector = DetectAnomalies(contamination=0.005)
+
+
+def impute_with0(input_df, columns_to_impute_0):
+    # Impute the missing values with 0
+    imputed_df = input_df.copy()
+    imputed_df[columns_to_impute_0] = imputed_df[columns_to_impute_0].fillna(0)
+    return imputed_df
+
 
 # KNN imputer to impute missing values
 class ImputeKNN:
@@ -151,11 +167,19 @@ class ImputeKNN:
 
     def impute(self):
         # Fit the KNN imputer on the selected columns of the dataframe
-        return pd.DataFrame(self.imputer.fit_transform(self.data[self.columns_to_impute]), columns=self.columns_to_impute)
+        return pd.DataFrame(self.imputer.fit_transform(self.data[self.columns_to_impute]), columns = self.columns_to_impute)
 
     def join2full(self, data):
         # Replace the Nan values with the imputed values from impute()
-        data[self.columns_to_impute] = self.impute()
+        imputed_data = self.impute()
+        
+        # Set the indexes of imputed_data to the indexes of original data
+        imputed_data.index = data.index
+        
+        # Join the imputed data to the original data
+        columns_to_keep = [col for col in data.columns if col not in self.columns_to_impute]
+        data = data[columns_to_keep].join(imputed_data)
+        
         return data
 
 # Iterative imputer to impute missing values
@@ -176,9 +200,16 @@ class ImputeIterative:
 
     def join2full(self, data):
         # Replace the Nan values with the imputed values from impute()
-        data[self.columns_to_impute] = self.impute()
+        imputed_data = self.impute()
+        
+        # Set the indexes of imputed_data to the indexes of original data
+        imputed_data.index = data.index
+        
+        # Join the imputed data to the original data
+        columns_to_keep = [col for col in data.columns if col not in self.columns_to_impute]
+        data = data[columns_to_keep].join(imputed_data)
+        
         return data
-
 
 # Class to scale the data
 class Scaler:
@@ -280,64 +311,64 @@ class Scaler:
 
 
 
-import pandas as pd
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.metrics import r2_score
-from sklearn.metrics import mean_squared_error
-from ImputeKNN import ImputeKNN
-from ImputeIterative import ImputeIterative
+# import pandas as pd
+# from sklearn.ensemble import RandomForestRegressor
+# from sklearn.metrics import r2_score
+# from sklearn.metrics import mean_squared_error
+# from ImputeKNN import ImputeKNN
+# from ImputeIterative import ImputeIterative
 
-# Define the columns to impute
-cols_to_impute = clean_data.iloc[:,2:].columns
+# # Define the columns to impute
+# cols_to_impute = clean_data.iloc[:,2:].columns
 
-# Create an instance of the KNN Imputation class
-knn_imputer = ImputeKNN(clean_data, cols_to_impute)
+# # Create an instance of the KNN Imputation class
+# knn_imputer = ImputeKNN(clean_data, cols_to_impute)
 
-# Impute missing values using KNN and join the imputed data to the original DataFrame
-knn_imputed_data = knn_imputer.join2full(clean_data)
+# # Impute missing values using KNN and join the imputed data to the original DataFrame
+# knn_imputed_data = knn_imputer.join2full(clean_data)
 
-# Create an instance of the Iterative Imputation class
-iterative_imputer = ImputeIterative(clean_data, cols_to_impute)
+# # Create an instance of the Iterative Imputation class
+# iterative_imputer = ImputeIterative(clean_data, cols_to_impute)
 
-# Impute missing values using Iterative Imputation and join the imputed data to the original DataFrame
-iterative_imputed_data = iterative_imputer.join2full(clean_data)
+# # Impute missing values using Iterative Imputation and join the imputed data to the original DataFrame
+# iterative_imputed_data = iterative_imputer.join2full(clean_data)
 
-# Define the feature and target columns for the Random Forest Regressor
-X_cols = [col for col in knn_imputed_data.columns if col not in ['id', 'date', 'mood']]
-y_col = 'mood'
+# # Define the feature and target columns for the Random Forest Regressor
+# X_cols = [col for col in knn_imputed_data.columns if col not in ['id', 'date', 'mood']]
+# y_col = 'mood'
 
-# Split the data into training and testing sets
-train_data = knn_imputed_data.dropna()
-X_train = train_data[X_cols]
-y_train = train_data[y_col]
-test_data = clean_data[clean_data[y_col].notna()]
-X_test = test_data[X_cols]
-y_test = test_data[y_col]
+# # Split the data into training and testing sets
+# train_data = knn_imputed_data.dropna()
+# X_train = train_data[X_cols]
+# y_train = train_data[y_col]
+# test_data = clean_data[clean_data[y_col].notna()]
+# X_test = test_data[X_cols]
+# y_test = test_data[y_col]
 
-# Fit a Random Forest Regressor using the KNN-imputed data and make predictions on the test data
-rf_knn = RandomForestRegressor(n_estimators=100)
-rf_knn.fit(X_train, y_train)
-y_pred_knn = rf_knn.predict(X_test)
+# # Fit a Random Forest Regressor using the KNN-imputed data and make predictions on the test data
+# rf_knn = RandomForestRegressor(n_estimators=100)
+# rf_knn.fit(X_train, y_train)
+# y_pred_knn = rf_knn.predict(X_test)
 
-# Fit a Random Forest Regressor using the Iterative Imputed data and make predictions on the test data
-rf_iterative = RandomForestRegressor(n_estimators=100)
-rf_iterative.fit(X_train, y_train)
-y_pred_iterative = rf_iterative.predict(X_test)
+# # Fit a Random Forest Regressor using the Iterative Imputed data and make predictions on the test data
+# rf_iterative = RandomForestRegressor(n_estimators=100)
+# rf_iterative.fit(X_train, y_train)
+# y_pred_iterative = rf_iterative.predict(X_test)
 
-# Calculate the R-squared score for the predictions made using the KNN-imputed data
-r2_knn = r2_score(y_test, y_pred_knn)
-mse_knn = mean_squared_error(y_test, y_pred_knn) 
+# # Calculate the R-squared score for the predictions made using the KNN-imputed data
+# r2_knn = r2_score(y_test, y_pred_knn)
+# mse_knn = mean_squared_error(y_test, y_pred_knn) 
 
-# Calculate the R-squared score for the predictions made using the Iterative Imputed data
-r2_iterative = r2_score(y_test, y_pred_iterative)
-mse_iterative = mean_squared_error(y_test, y_pred_iterative)
+# # Calculate the R-squared score for the predictions made using the Iterative Imputed data
+# r2_iterative = r2_score(y_test, y_pred_iterative)
+# mse_iterative = mean_squared_error(y_test, y_pred_iterative)
 
-# Print the R-squared scores for both imputers
-print(f"R-squared score for KNN-imputed data: {r2_knn}")
-print(f"R-squared score for Iterative Imputed data: {r2_iterative}")
+# # Print the R-squared scores for both imputers
+# print(f"R-squared score for KNN-imputed data: {r2_knn}")
+# print(f"R-squared score for Iterative Imputed data: {r2_iterative}")
 
-print(f"Mean Squared Error for KNN-imputed data: {mse_knn}")
-print(f"Mean Squared Error for Iterative Imputed data: {mse_iterative}")
+# print(f"Mean Squared Error for KNN-imputed data: {mse_knn}")
+# print(f"Mean Squared Error for Iterative Imputed data: {mse_iterative}")
 
 
 

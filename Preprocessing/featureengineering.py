@@ -1,106 +1,259 @@
 # Import libraries
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import LabelEncoder
+from Preprocessing.datacleaning import remove_incorrect_values, convert_to_wide, impute_with0, ImputeKNN, ImputeIterative
+
+# Import as Dataframe
+df = pd.read_csv('./Data/dataset_mood_smartphone.csv')
+df.head()
+
+# Drop unnecessary columns
+data =  df.drop(['Unnamed: 0'], axis=1)
+    
+# Make sure the 'time' column is of type datetime
+data['time'] = pd.to_datetime(data['time'])
+
+valid_df, removed_df = remove_incorrect_values(data)
+pivot_df = convert_to_wide(valid_df)
+
+# Remove index column
+pivot_df = pivot_df.drop(['index'], axis=1)
+
+cols_2_imp = [c for c in pivot_df.columns if pivot_df[c].dtype != 'object' and c not in ['id', 'date']]
+
+def impute_with0(input_df, columns_to_impute_0):
+    # Impute the missing values with 0
+    imputed_df = input_df.copy()
+    imputed_df[columns_to_impute_0] = imputed_df[columns_to_impute_0].fillna(0)
+    return imputed_df
+
+joe = impute_with0(pivot_df, cols_2_imp)
 
 # Feature Engineering
 def feature_engineering(df):
     """ Feature engineering for time series data """
     
-    # Make variables for the hour, day, month, year, and weekday
-    df['hour'] = df['time'].dt.hour
-    df['day'] = df['time'].dt.weekday
-    df['month'] = df['time'].dt.month
-    df['year'] = df['time'].dt.year
-    df['weekday'] = df['time'].dt.strftime('%A')
+    # 1. Time-based features:
+    num_cols = [c for c in df.columns if df[c].dtype != 'object' and c not in ['id', 'date']]
     
-    # Add a column for morning or evening
-    df['morning'] = np.where(df['hour'] < 12, 1, 0)
-
-    # Add a column for weekend or weekday
-    df['weekend'] = np.where(df['weekday'] >= 5, 1, 0)
+    # Ensure 'date' column is a datetimelike object
+    df['date'] = pd.to_datetime(df['date']) 
+    
+    # Make variables for the hour, day, month, year, and weekday
+    df['day'] = df['date'].dt.weekday
+    df['month'] = df['date'].dt.month
+    
+    # Make a variable for weekday or weekend
+    df['weekday'] = df['date'].dt.strftime('%A')
+    # df['weekend'] = np.where(df['weekday'] >= 5, 1, 0)
     
     # Make a variable for the day of the year
-    df['day_of_year'] = df['time'].dt.dayofyear
+    df['day_of_year'] = df['date'].dt.dayofyear
     
     # Make a variable for the week of the year
-    df['week_of_year'] = df['time'].dt.weekofyear
+    df['week_of_year'] = df['date'].dt.isocalendar().week
     
     # Make a variable for the day of the month
-    df['day_of_month'] = df['time'].dt.day
+    df['day_of_month'] = df['date'].dt.day
     
     # Make a variable for the week of the month
-    df['week_of_month'] = df['time'].dt.week
+    df['week_of_month'] = np.ceil(df['date'].dt.day/7).astype(int)
     
-    # Make a variable for the quarter of the year
-    df['quarter'] = df['time'].dt.quarter
+    # Create seasonality features
+    df['season'] = np.where(df['date'].dt.month.isin([1, 2, 12]), 'winter',
+                   np.where(df['date'].dt.month.isin([3, 4, 5]), 'spring',
+                   np.where(df['date'].dt.month.isin([6, 7, 8]), 'summer',
+                   np.where(df['date'].dt.month.isin([9, 10, 11]), 'fall', 'unknown'))))
+
+    # Name the app.Cats here, otherwise all newly created columns starting with app will be used
+    app_cats = [c for c in df.columns if c.startswith('appCat')]
+
+    # 2. Statistical features
+    window_size = [4, 5, 6, 7, 8, 9, 10]
+            
+    # Fill a dataframe with the new columns
+    new_cols = []
+    for c in num_cols:
+        df[f'{c}_time_since_last_activity'] = df['date'].diff().dt.days
+        
+        # Loop through the window sizes
+        for window in window_size:
+            # Make sure that if training data is running empty, and the window size is larger than the number of observations, the window size is set to the number of observations
+            window = min(window, len(df))
+            # Make a variable for the rolling mean
+            rolling_mean = pd.Series(df.groupby('id')[c].rolling(window).mean().values).reset_index(drop=True)
+            rolling_mean.name = f'{c}_rolling_mean_{window}'
+            new_cols.append(rolling_mean)
+            
+            # Make a variable for the rolling standard deviation
+            rolling_std = pd.Series(df.groupby('id')[c].rolling(window).std().values).reset_index(drop=True)
+            rolling_std.name = f'{c}_rolling_std_{window}'
+            new_cols.append(rolling_std)
+        
+            # Make a variable for the rolling minimum
+            rolling_min = pd.Series(df.groupby('id')[c].rolling(window).min().values).reset_index(drop=True)
+            rolling_min.name = f'{c}_rolling_min_{window}'
+            new_cols.append(rolling_min)
+            
+            # Make a variable for the rolling maximum
+            rolling_max = pd.Series(df.groupby('id')[c].rolling(window).max().values).reset_index(drop=True)
+            rolling_max.name = f'{c}_rolling_max_{window}'
+            new_cols.append(rolling_max)
+            
+            # Make a variable for the rolling median
+            rolling_median = pd.Series(df.groupby('id')[c].rolling(window).median().values).reset_index(drop=True)
+            rolling_median.name = f'{c}_rolling_median_{window}'
+            new_cols.append(rolling_median)
+            
+            # Make a variable for the rolling sum
+            rolling_sum = pd.Series(df.groupby('id')[c].rolling(window).sum().values).reset_index(drop=True)
+            rolling_sum.name = f'{c}_rolling_sum_{window}'
+            new_cols.append(rolling_sum)
+            
+            # Make a variable for the rolling count
+            rolling_count = pd.Series(df.groupby('id')[c].rolling(window).count().values).reset_index(drop=True)
+            rolling_count.name = f'{c}_rolling_count_{window}'
+            new_cols.append(rolling_count)
+            
+            # Make a variable for the rolling skew
+            rolling_skew = pd.Series(df.groupby('id')[c].rolling(window).skew().values).reset_index(drop=True)
+            rolling_skew.name = f'{c}_rolling_skew_{window}'
+            new_cols.append(rolling_skew)
+
+            # Make a variable for the rolling kurtosis
+            rolling_kurtosis = pd.Series(df.groupby('id')[c].rolling(window).kurt().values).reset_index(drop=True)
+            rolling_kurtosis.name = f'{c}_rolling_kurtosis_{window}'
+            new_cols.append(rolling_kurtosis)
+            
+            # Make a variable for the rolling quantile (0.5)
+            rolling_quantile_50 = pd.Series(df.groupby('id')[c].rolling(window).quantile(0.5).values).reset_index(drop=True)
+            rolling_quantile_50.name = f'{c}_rolling_quantile_50_{window}'
+            new_cols.append(rolling_quantile_50)
+            
+            # Make a variable for the rolling quantile (0.25)
+            rolling_quantile_25 = pd.Series(df.groupby('id')[c].rolling(window).quantile(0.25).values).reset_index(drop=True)
+            rolling_quantile_25.name = f'{c}_rolling_quantile_25_{window}'
+            new_cols.append(rolling_quantile_25)
+            
+            # Make a variable for the rolling quantile (0.75)
+            rolling_quantile_75 = pd.Series(df.groupby('id')[c].rolling(window).quantile(0.75).values).reset_index(drop=True)
+            rolling_quantile_75.name = f'{c}_rolling_quantile_75_{window}'
+            new_cols.append(rolling_quantile_75)
+
+            # Make a variable for the lag feature
+            lag = pd.Series(df.groupby('id')[c].shift(window)).reset_index(drop=True)
+            lag.name = f'{c}_lag_{window}'
+            new_cols.append(lag)
     
-    # Make a variable for the lag, which is the value from the previous hour
-    df['lag'] = df['value'].shift(1)
+
+    # Put the new_cols into a dataframe
+    new_cols = pd.DataFrame(new_cols).T
+
+    # Concatenate the new_cols to the original dataframe
+    df = pd.concat([df, new_cols], axis=1)
+       
+    # 3. Domain-specific features:
     
-    # Make a variable for the rolling mean, which is the average value over the last 7 days
-    df['rolling_mean'] = df['value'].rolling(7, min_periods=1).mean()
-    
-    # Make a variable for the rolling standard deviation, which is the standard deviation of the values over the last 7 days
-    df['rolling_std'] = df['value'].rolling(7, min_periods=1).std()
-    
-    # Make a variable for the rolling minimum, which is the minimum value over the last 7 days
-    df['rolling_min'] = df['value'].rolling(7, min_periods=1).min()
-    
-    # Make a variable for the rolling maximum, which is the maximum value over the last 7 days
-    df['rolling_max'] = df['value'].rolling(7, min_periods=1).max()
-    
-    # Make a variable for the rolling median, which is the median value over the last 7 days
-    df['rolling_median'] = df['value'].rolling(7, min_periods=1).median()
-    
-    # Make a variable for the rolling sum, which is the sum of the values over the last 7 days
-    df['rolling_sum'] = df['value'].rolling(7, min_periods=1).sum()
-    
-    # Make a variable for the rolling count, which is the number of values over the last 7 days
-    df['rolling_count'] = df['value'].rolling(7, min_periods=1).count()
-    
-    # Make a variable for the rolling skew, which is the skew of the values over the last 7 days
-    df['rolling_skew'] = df['value'].rolling(7, min_periods=1).skew()
-    
-    # Make a variable for the rolling kurtosis, which is the kurtosis of the values over the last 7 days
-    df['rolling_kurtosis'] = df['value'].rolling(7, min_periods=1).kurt()
-    
-    # Make a variable for the rolling quantile, which is the quantile of the values over the last 7 days
-    df['rolling_quantile'] = df['value'].rolling(7, min_periods=1).quantile(0.5)
-    
-    # Make a variable for the number of days since the last time the value was above 100
-    df['days_since_above_100'] = (df['value'] > 100).astype(int).groupby((df['value'] > 100).astype(int).diff().ne(0).cumsum()).cumsum()
-    
-    # Make a variable for the number of days since the last time the value was below 100
-    df['days_since_below_100'] = (df['value'] < 100).astype(int).groupby((df['value'] < 100).astype(int).diff().ne(0).cumsum()).cumsum()
-    
-    # Add a column for total app usage
-    app_cats = ['appCat.builtin', 'appCat.communication', 'appCat.entertainment', 'appCat.finance', 'appCat.game', 'appCat.office', 'appCat.other', 'appCat.social', 'appCat.travel', 'appCat.unknown', 'appCat.utilities', 'appCat.weather']
+    # Add a column for the most frequent app
+    most_freq_app = pd.Series(df[app_cats].idxmax(axis=1)).reset_index(drop=True)
+    most_freq_app.name = 'most_freq_app'
+        
+    # One-hot encode the most frequent app with LabelEncoder
+    le = LabelEncoder()
+    most_freq_app_encoded = pd.DataFrame(le.fit_transform(most_freq_app), columns=['most_freq_app_encoded'])
+
+    # Replace the one-hot encoded column with the label encoded column
+    df = pd.concat([df, most_freq_app_encoded], axis=1)
+
+    # Add a column for total app usage per day per id in time
     df['app_usage'] = df[app_cats].sum(axis=1)
 
-    # Add a column for total app usage per day
-    df['app_usage_per_day'] = df.groupby('id')['app_usage'].transform('mean')
+    # Add a column for the total number of apps used per day per id in time based on which values are greater than 0
+    df['num_apps_used'] = (df[app_cats] > 0).sum(axis=1)
+    
+    # Duration of social interaction
+    social_apps = ['appCat.communication', 'appCat.social']
+    df['social_interaction_duration'] = df[social_apps].sum(axis=1)
+    
+    # Duration of 'fun' apps and office apps
+    # appCat.entertainment is most correlated with 0.336546500751683 from appCat.office
+    EntOff_apps = ['appCat.entertainment', 'appCat.office']
+    df['EntOff_interaction_duration'] = df[EntOff_apps].sum(axis=1)
+    
+    # Duration of 'work' apps and communication apps
+    # appCat.finance is most correlated with 0.29156044051631286 from appCat.communication
+    FinCom_apps = ['appCat.finance', 'appCat.communication']
+    df['FinCom_interaction_duration'] = df[FinCom_apps].sum(axis=1)
+    
+    # Duration of 'all dopamine' apps
+    # appCat.game is most correlated with 0.27441381254710484 from appCat.entertainment
+    EntGam_apps = ['appCat.entertainment', 'appCat.game']
+    df['EntGam_interaction_duration'] = df[EntGam_apps].sum(axis=1)
+    
+    # appCat.other is most correlated with 0.22075455275327413 from appCat.entertainment
+    OthEnt_apps = ['appCat.other', 'appCat.entertainment']
+    df['OthEnt_interaction_duration'] = df[OthEnt_apps].sum(axis=1)
+    
+    # appCat.travel is most correlated with 0.15521002650076768 from appCat.other
+    OthTra_apps = ['appCat.other', 'appCat.travel']
+    df['OthTra_interaction_duration'] = df[OthTra_apps].sum(axis=1)
 
-    # Add a column for total call duration per day
-    df['call_duration_per_day'] = df.groupby(['id', 'date'])['call'].transform('sum')
+    # appCat.utilities is most correlated with 0.23926868329595047 from appCat.weather
+    UtWea_apps = ['appCat.utilities', 'appCat.weather']
+    df['UtWea_interaction_duration'] = df[UtWea_apps].sum(axis=1)
+    
+    # appCat.weather is most correlated with 0.27312767718313147 from appCat.communication
+    WeaCom_apps = ['appCat.weather', 'appCat.communication']
+    df['WeaCom_interaction_duration'] = df[WeaCom_apps].sum(axis=1)
 
-    # Add a column for total call duration per week
-    df['call_duration_per_week'] = df.groupby(['id', 'weekend'])['call'].transform('sum')
+    # Create a new feature that represents the total time spent on social apps vs. work apps
+    df['social_time'] = df[['appCat.communication', 'appCat.social','appCat.entertainment']].sum(axis=1)
+    df['work_time'] = df[['appCat.office', 'appCat.finance']].sum(axis=1)
 
-    # Add a column for total activity per day
-    df['activity_per_day'] = df.groupby('id')['activity'].transform('mean')
+    # Create cross-product features for all numeric columns
+    new_cross_cols = []
+    for i in range(len(num_cols)):
+        for j in range(i+1, len(num_cols)):
+            new_col_name = f"{num_cols[i]}_{num_cols[j]}"
+            new_col = df[num_cols[i]] * df[num_cols[j]]
+            new_col.name = new_col_name
+            new_cross_cols.append(new_col)
 
-    # Add a column for total activity per week
-    df['activity_per_week'] = df.groupby(['id', 'weekend'])['activity'].transform('mean')
-
-    # Add a column for average arousal per day
-    df['arousal_per_day'] = df.groupby('id')['circumplex.arousal'].transform('mean')
-
-    # Add a column for average valence per day
-    df['valence_per_day'] = df.groupby('id')['circumplex.valence'].transform('mean')
-
-    # Add a column for average mood per day
-    df['mood_per_day'] = df.groupby('id')['mood'].transform('mean')
-
+    # Add the new cross-product features to the DataFrame
+    df = pd.concat([df, *new_cross_cols], axis=1)
+    
+    
     # Return the dataframe with the new features
     return df
-    
+
+fe_data = feature_engineering(joe)
+
+# Remove rows with NaN values
+fe_df = fe_data.dropna()
+
+# How many rows of data for each id?
+min(fe_df.groupby('id').size())
+
+
+
+
+# activity is most correlated with 0.277739650358384 from mood
+# appCat.builtin is most correlated with 0.11764174086734279 from appCat.communication
+# appCat.communication is most correlated with 0.5137391505411122 from screen
+# appCat.entertainment is most correlated with 0.336546500751683 from appCat.office
+# appCat.finance is most correlated with 0.29156044051631286 from appCat.communication
+# appCat.game is most correlated with 0.27441381254710484 from appCat.entertainment
+# appCat.office is most correlated with 0.336546500751683 from appCat.entertainment
+# appCat.other is most correlated with 0.22075455275327413 from appCat.entertainment
+# appCat.social is most correlated with 0.3679284176282209 from screen
+# appCat.travel is most correlated with 0.15521002650076768 from appCat.other
+# appCat.unknown is most correlated with 0.39516287604927275 from screen
+# appCat.utilities is most correlated with 0.23926868329595047 from appCat.weather
+# appCat.weather is most correlated with 0.27312767718313147 from appCat.communication
+# call is most correlated with nan from appCat.builtin
+# circumplex.arousal is most correlated with 0.23007562860534975 from circumplex.valence
+# circumplex.valence is most correlated with 0.4711588597771999 from mood
+# mood is most correlated with 0.4711588597771999 from circumplex.valence
+# screen is most correlated with 0.5137391505411122 from appCat.communication
+# sms is most correlated with nan from appCat.builtin

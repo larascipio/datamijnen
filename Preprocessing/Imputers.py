@@ -62,6 +62,7 @@ def create_lstm_model(train, batch_size, epochs, neurons):
 
 
 # Implement the Recurrent neural network (RNN) model, like so:
+
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import SimpleRNN
