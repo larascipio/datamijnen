@@ -4,31 +4,6 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 from Preprocessing.datacleaning import remove_incorrect_values, convert_to_wide, impute_with0, ImputeKNN, ImputeIterative
 
-# Import as Dataframe
-df = pd.read_csv('./Data/dataset_mood_smartphone.csv')
-df.head()
-
-# Drop unnecessary columns
-data =  df.drop(['Unnamed: 0'], axis=1)
-    
-# Make sure the 'time' column is of type datetime
-data['time'] = pd.to_datetime(data['time'])
-
-valid_df, removed_df = remove_incorrect_values(data)
-pivot_df = convert_to_wide(valid_df)
-
-# Remove index column
-pivot_df = pivot_df.drop(['index'], axis=1)
-
-cols_2_imp = [c for c in pivot_df.columns if pivot_df[c].dtype != 'object' and c not in ['id', 'date']]
-
-def impute_with0(input_df, columns_to_impute_0):
-    # Impute the missing values with 0
-    imputed_df = input_df.copy()
-    imputed_df[columns_to_impute_0] = imputed_df[columns_to_impute_0].fillna(0)
-    return imputed_df
-
-joe = impute_with0(pivot_df, cols_2_imp)
 
 # Feature Engineering
 def feature_engineering(df):
@@ -44,9 +19,11 @@ def feature_engineering(df):
     df['day'] = df['date'].dt.weekday
     df['month'] = df['date'].dt.month
     
-    # Make a variable for weekday or weekend
+    # Make a variable for weekday 
     df['weekday'] = df['date'].dt.strftime('%A')
-    # df['weekend'] = np.where(df['weekday'] >= 5, 1, 0)
+    
+    # Make a variable for weekend based on the weekday
+    df['weekend'] = np.where(df['weekday'].isin(['Saturday', 'Sunday']), 1, 0)
     
     # Make a variable for the day of the year
     df['day_of_year'] = df['date'].dt.dayofyear
@@ -65,12 +42,12 @@ def feature_engineering(df):
                    np.where(df['date'].dt.month.isin([3, 4, 5]), 'spring',
                    np.where(df['date'].dt.month.isin([6, 7, 8]), 'summer',
                    np.where(df['date'].dt.month.isin([9, 10, 11]), 'fall', 'unknown'))))
-
+    
     # Name the app.Cats here, otherwise all newly created columns starting with app will be used
     app_cats = [c for c in df.columns if c.startswith('appCat')]
 
     # 2. Statistical features
-    window_size = [4, 5, 6, 7, 8, 9, 10]
+    window_size = [4, 5, 6]
             
     # Fill a dataframe with the new columns
     new_cols = []
@@ -152,22 +129,29 @@ def feature_engineering(df):
 
     # Concatenate the new_cols to the original dataframe
     df = pd.concat([df, new_cols], axis=1)
-       
+    
+    # Remove the rows where the rolling features are NaN if there are any
+    if df.isnull().values.any():
+        df = df.dropna()
+    
     # 3. Domain-specific features:
     
     # Add a column for the most frequent app
     most_freq_app = pd.Series(df[app_cats].idxmax(axis=1)).reset_index(drop=True)
     most_freq_app.name = 'most_freq_app'
-        
-    # One-hot encode the most frequent app with LabelEncoder
-    le = LabelEncoder()
-    most_freq_app_encoded = pd.DataFrame(le.fit_transform(most_freq_app), columns=['most_freq_app_encoded'])
-
-    # Replace the one-hot encoded column with the label encoded column
-    df = pd.concat([df, most_freq_app_encoded], axis=1)
+    
+    # Label encode the categorical variables
+    cat_cols = [c for c in df.columns if df[c].dtype == 'object' and c not in ['id', 'date']]
+    for c in cat_cols:
+        df[c] = LabelEncoder().fit_transform(df[c])
 
     # Add a column for total app usage per day per id in time
     df['app_usage'] = df[app_cats].sum(axis=1)
+    
+    # Count the number of days per id and join it to the dataframe as a new column on id
+    num_days = df.groupby('id')['day'].count()
+    # Join the number of days to the dataframe on id
+    df = df.join(num_days, on='id', rsuffix='_num_days')
 
     # Add a column for the total number of apps used per day per id in time based on which values are greater than 0
     df['num_apps_used'] = (df[app_cats] > 0).sum(axis=1)
@@ -223,20 +207,8 @@ def feature_engineering(df):
     # Add the new cross-product features to the DataFrame
     df = pd.concat([df, *new_cross_cols], axis=1)
     
-    
     # Return the dataframe with the new features
     return df
-
-fe_data = feature_engineering(joe)
-
-# Remove rows with NaN values
-fe_df = fe_data.dropna()
-
-# How many rows of data for each id?
-min(fe_df.groupby('id').size())
-
-
-
 
 # activity is most correlated with 0.277739650358384 from mood
 # appCat.builtin is most correlated with 0.11764174086734279 from appCat.communication
