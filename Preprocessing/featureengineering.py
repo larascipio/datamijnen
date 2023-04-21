@@ -4,10 +4,15 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 from Preprocessing.datacleaning import remove_incorrect_values, convert_to_wide, impute_with0, ImputeKNN, ImputeIterative
 
-
 # Feature Engineering
-def feature_engineering(df):
+def feature_engineering(df_original):
     """ Feature engineering for time series data """
+    
+    # Save original dataframe
+    df = df_original.copy()
+    
+    # Reset the index
+    df = df.reset_index(drop=True)
     
     # 1. Time-based features:
     num_cols = [c for c in df.columns if df[c].dtype != 'object' and c not in ['id', 'date']]
@@ -130,6 +135,9 @@ def feature_engineering(df):
     # Concatenate the new_cols to the original dataframe
     df = pd.concat([df, new_cols], axis=1)
     
+    # Check which row numbers were dropped because they contained NaN values
+    kept_index = df[~df.isnull().any(axis=1)].index
+    
     # Remove the rows where the rolling features are NaN if there are any
     if df.isnull().values.any():
         df = df.dropna()
@@ -144,7 +152,7 @@ def feature_engineering(df):
     cat_cols = [c for c in df.columns if df[c].dtype == 'object' and c not in ['id', 'date']]
     for c in cat_cols:
         df[c] = LabelEncoder().fit_transform(df[c])
-
+    
     # Add a column for total app usage per day per id in time
     df['app_usage'] = df[app_cats].sum(axis=1)
     
@@ -194,7 +202,7 @@ def feature_engineering(df):
     # Create a new feature that represents the total time spent on social apps vs. work apps
     df['social_time'] = df[['appCat.communication', 'appCat.social','appCat.entertainment']].sum(axis=1)
     df['work_time'] = df[['appCat.office', 'appCat.finance']].sum(axis=1)
-
+    
     # Create cross-product features for all numeric columns
     new_cross_cols = []
     for i in range(len(num_cols)):
@@ -206,6 +214,9 @@ def feature_engineering(df):
 
     # Add the new cross-product features to the DataFrame
     df = pd.concat([df, *new_cross_cols], axis=1)
+    
+    # Change the index values to the original index values by adding the original index values to the kept_index values
+    df.index = kept_index + df_original.index.values[0]
     
     # Return the dataframe with the new features
     return df
