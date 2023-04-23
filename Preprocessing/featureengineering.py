@@ -1,16 +1,21 @@
 # Import libraries
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from Preprocessing.datacleaning import remove_incorrect_values, convert_to_wide, impute_with0, ImputeKNN, ImputeIterative
 
-
 # Feature Engineering
-def feature_engineering(df):
+def feature_engineering(df_original):
     """ Feature engineering for time series data """
     
+    # Save original dataframe 
+    df = df_original.copy()
+    
+    # Reset the index
+    df = df.reset_index(drop=True)
+    
     # 1. Time-based features:
-    num_cols = [c for c in df.columns if df[c].dtype != 'object' and c not in ['id', 'date']]
+    # num_cols = [c for c in df.columns if df[c].dtype != 'object' and c not in ['id', 'date']]
     
     # Ensure 'date' column is a datetimelike object
     df['date'] = pd.to_datetime(df['date']) 
@@ -37,114 +42,74 @@ def feature_engineering(df):
     # Make a variable for the week of the month
     df['week_of_month'] = np.ceil(df['date'].dt.day/7).astype(int)
     
-    # Create seasonality features
-    df['season'] = np.where(df['date'].dt.month.isin([1, 2, 12]), 'winter',
-                   np.where(df['date'].dt.month.isin([3, 4, 5]), 'spring',
-                   np.where(df['date'].dt.month.isin([6, 7, 8]), 'summer',
-                   np.where(df['date'].dt.month.isin([9, 10, 11]), 'fall', 'unknown'))))
+    # Make a variable for the start of the month
+    df['is_month_start'] = df.date.dt.is_month_start.astype(int)
     
+    # Make a variable for the start of the month
+    df['is_month_end'] = df.date.dt.is_month_end.astype(int)
+    
+    # Calculate the time difference between each consecutive row 
+    df['time_diff'] = (df['date'].diff().dt.total_seconds() / (60*60)).fillna(0)
+    
+    # Random gaussian noise
+    def random_noise(dataframe):
+        return np.random.normal(scale=1.5, size=(len(dataframe),))
+
     # Name the app.Cats here, otherwise all newly created columns starting with app will be used
     app_cats = [c for c in df.columns if c.startswith('appCat')]
-
+    
     # 2. Statistical features
-    window_size = [4, 5, 6]
-            
-    # Fill a dataframe with the new columns
-    new_cols = []
-    for c in num_cols:
-        df[f'{c}_time_since_last_activity'] = df['date'].diff().dt.days
+    
+    # Rolling variables for mood
+    windows = [4, 5, 6]
+    for window in windows:
+        # Rolling mean for mood
+        df['mood_roll_mean_' + str(window)] = df.groupby(["mood", "id"])['mood']. \
+                                                          transform(
+            lambda x: x.shift(1).rolling(window=window, min_periods=2, win_type="triang").mean()) + random_noise(df)
+        # Rolling std for mood
+        df['mood_roll_std_' + str(window)] = df.groupby(["mood", "id"])['mood']. \
+                                                          transform(
+            lambda x: x.shift(1).rolling(window=window, min_periods=2, win_type="triang").std()) + random_noise(df)
+        # Rolling sum for mood
+        df['mood_roll_sum_' + str(window)] = df.groupby(["mood", "id"])['mood']. \
+                                                          transform(
+            lambda x: x.shift(1).rolling(window=window, min_periods=2, win_type="triang").sum()) + random_noise(df)                                                                                                                                                                                                                                                          
+    
+    # Lag features for mood
+    lags = [4, 5, 6]        
+    for lag in lags:
+        df['mood_lag_' + str(lag)] = df.groupby(["mood", "id"])['mood'].transform(
+            lambda x: x.shift(lag)) + random_noise(df)
+
+    # Exponentially Weighted Mean Features
+    alphas = [0.95, 0.9, 0.8, 0.7, 0.5]
+    for alpha in alphas:
+        for lag in lags:
+            df['mood_ewm_alpha_' + str(alpha).replace(".", "") + "_lag_" + str(lag)] = \
+                df.groupby(["mood", "id"])['mood'].transform(lambda x: x.shift(lag).ewm(alpha=alpha).mean())
+    
+    # 2. Categorical features: convert to one-hot encoding
+    cols_to_encode = [object for object in df.select_dtypes(include='object').columns.tolist() if object != 'id']
+     
+    # create an instance of the OneHotEncoder
+    ohe = OneHotEncoder(sparse_output=False)
+
+    # fit and transform the selected columns using the OneHotEncoder
+    encoded_cols = ohe.fit_transform(df[cols_to_encode])
+
+    # create a DataFrame from the encoded columns with column names
+    encoded_df = pd.DataFrame(encoded_cols, columns=ohe.get_feature_names_out(cols_to_encode))
+
+    # concatenate the encoded columns with the original DataFrame
+    df = pd.concat([df.drop(cols_to_encode, axis=1), encoded_df], axis=1)
         
-        # Loop through the window sizes
-        for window in window_size:
-            # Make sure that if training data is running empty, and the window size is larger than the number of observations, the window size is set to the number of observations
-            window = min(window, len(df))
-            # Make a variable for the rolling mean
-            rolling_mean = pd.Series(df.groupby('id')[c].rolling(window).mean().values).reset_index(drop=True)
-            rolling_mean.name = f'{c}_rolling_mean_{window}'
-            new_cols.append(rolling_mean)
-            
-            # Make a variable for the rolling standard deviation
-            rolling_std = pd.Series(df.groupby('id')[c].rolling(window).std().values).reset_index(drop=True)
-            rolling_std.name = f'{c}_rolling_std_{window}'
-            new_cols.append(rolling_std)
-        
-            # Make a variable for the rolling minimum
-            rolling_min = pd.Series(df.groupby('id')[c].rolling(window).min().values).reset_index(drop=True)
-            rolling_min.name = f'{c}_rolling_min_{window}'
-            new_cols.append(rolling_min)
-            
-            # Make a variable for the rolling maximum
-            rolling_max = pd.Series(df.groupby('id')[c].rolling(window).max().values).reset_index(drop=True)
-            rolling_max.name = f'{c}_rolling_max_{window}'
-            new_cols.append(rolling_max)
-            
-            # Make a variable for the rolling median
-            rolling_median = pd.Series(df.groupby('id')[c].rolling(window).median().values).reset_index(drop=True)
-            rolling_median.name = f'{c}_rolling_median_{window}'
-            new_cols.append(rolling_median)
-            
-            # Make a variable for the rolling sum
-            rolling_sum = pd.Series(df.groupby('id')[c].rolling(window).sum().values).reset_index(drop=True)
-            rolling_sum.name = f'{c}_rolling_sum_{window}'
-            new_cols.append(rolling_sum)
-            
-            # Make a variable for the rolling count
-            rolling_count = pd.Series(df.groupby('id')[c].rolling(window).count().values).reset_index(drop=True)
-            rolling_count.name = f'{c}_rolling_count_{window}'
-            new_cols.append(rolling_count)
-            
-            # Make a variable for the rolling skew
-            rolling_skew = pd.Series(df.groupby('id')[c].rolling(window).skew().values).reset_index(drop=True)
-            rolling_skew.name = f'{c}_rolling_skew_{window}'
-            new_cols.append(rolling_skew)
-
-            # Make a variable for the rolling kurtosis
-            rolling_kurtosis = pd.Series(df.groupby('id')[c].rolling(window).kurt().values).reset_index(drop=True)
-            rolling_kurtosis.name = f'{c}_rolling_kurtosis_{window}'
-            new_cols.append(rolling_kurtosis)
-            
-            # Make a variable for the rolling quantile (0.5)
-            rolling_quantile_50 = pd.Series(df.groupby('id')[c].rolling(window).quantile(0.5).values).reset_index(drop=True)
-            rolling_quantile_50.name = f'{c}_rolling_quantile_50_{window}'
-            new_cols.append(rolling_quantile_50)
-            
-            # Make a variable for the rolling quantile (0.25)
-            rolling_quantile_25 = pd.Series(df.groupby('id')[c].rolling(window).quantile(0.25).values).reset_index(drop=True)
-            rolling_quantile_25.name = f'{c}_rolling_quantile_25_{window}'
-            new_cols.append(rolling_quantile_25)
-            
-            # Make a variable for the rolling quantile (0.75)
-            rolling_quantile_75 = pd.Series(df.groupby('id')[c].rolling(window).quantile(0.75).values).reset_index(drop=True)
-            rolling_quantile_75.name = f'{c}_rolling_quantile_75_{window}'
-            new_cols.append(rolling_quantile_75)
-
-            # Make a variable for the lag feature
-            lag = pd.Series(df.groupby('id')[c].shift(window)).reset_index(drop=True)
-            lag.name = f'{c}_lag_{window}'
-            new_cols.append(lag)
-    
-
-    # Put the new_cols into a dataframe
-    new_cols = pd.DataFrame(new_cols).T
-
-    # Concatenate the new_cols to the original dataframe
-    df = pd.concat([df, new_cols], axis=1)
-    
-    # Remove the rows where the rolling features are NaN if there are any
-    if df.isnull().values.any():
-        df = df.dropna()
-    
     # 3. Domain-specific features:
-    
-    # Add a column for the most frequent app
-    most_freq_app = pd.Series(df[app_cats].idxmax(axis=1)).reset_index(drop=True)
-    most_freq_app.name = 'most_freq_app'
-    
-    # Label encode the categorical variables
-    cat_cols = [c for c in df.columns if df[c].dtype == 'object' and c not in ['id', 'date']]
-    for c in cat_cols:
-        df[c] = LabelEncoder().fit_transform(df[c])
 
+    # Add a column for the most frequent app
+    df['most_freq_app'] = df[app_cats].idxmax(axis=1)
+    df['most_freq_app'] = LabelEncoder().fit_transform(df['most_freq_app'])
+       
     # Add a column for total app usage per day per id in time
     df['app_usage'] = df[app_cats].sum(axis=1)
     
@@ -194,18 +159,6 @@ def feature_engineering(df):
     # Create a new feature that represents the total time spent on social apps vs. work apps
     df['social_time'] = df[['appCat.communication', 'appCat.social','appCat.entertainment']].sum(axis=1)
     df['work_time'] = df[['appCat.office', 'appCat.finance']].sum(axis=1)
-
-    # Create cross-product features for all numeric columns
-    new_cross_cols = []
-    for i in range(len(num_cols)):
-        for j in range(i+1, len(num_cols)):
-            new_col_name = f"{num_cols[i]}_{num_cols[j]}"
-            new_col = df[num_cols[i]] * df[num_cols[j]]
-            new_col.name = new_col_name
-            new_cross_cols.append(new_col)
-
-    # Add the new cross-product features to the DataFrame
-    df = pd.concat([df, *new_cross_cols], axis=1)
     
     # Return the dataframe with the new features
     return df
@@ -229,3 +182,4 @@ def feature_engineering(df):
 # mood is most correlated with 0.4711588597771999 from circumplex.valence
 # screen is most correlated with 0.5137391505411122 from appCat.communication
 # sms is most correlated with nan from appCat.builtin
+

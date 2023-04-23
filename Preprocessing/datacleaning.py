@@ -7,7 +7,6 @@ from sklearn.impute import KNNImputer
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.linear_model import BayesianRidge
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 
 
@@ -214,161 +213,78 @@ class ImputeIterative:
 # Class to scale the data
 class Scaler:
     """
-    mood: No scaling is required for the target variable as it is already on a scale of 1-10.
-    circumplex.arousal and circumplex.valence: These variables have a range between -2 to 2 and are centered around 0, 
+    Variables containing 'mood': No scaling is required for the target variable as it is already on a scale of 1-10.
+    Variables containing 'circumplex.arousal' or 'circumplex.valence': These variables have a range between -2 to 2 and are centered around 0, 
     making them suitable for StandardScaler.
-    activity: This variable has a range between 0 to 1 and is also suitable for MinMaxScaler.
-    screen: This variable has a wide range and may contain outliers, making it suitable for RobustScaler.
-    call and sms: These variables are binary and do not require scaling.
-    appCat.*: These variables represent the duration of usage of different types of apps and may have a wide range and outliers, 
+    Variables containing 'activity': This variable has a range between 0 to 1 and is also suitable for MinMaxScaler.
+    Variables containing 'screen': This variable has a wide range and may contain outliers, making it suitable for RobustScaler.
+    Variables containing 'call' and 'sms': These variables are binary and do not require scaling.
+    Variables containing 'appCat.*': These variables represent the duration of usage of different types of apps and may have a wide range and outliers, 
     making them suitable for RobustScaler.
     """
-    def __init__(self, data, columns_to_scale):
-        self.data = data
-        self.columns_to_scale = columns_to_scale
-        self.scalers = {
-            'StandardScaler': StandardScaler(),
-            'MinMaxScaler': MinMaxScaler(),
-            'RobustScaler': RobustScaler()
-        }
 
-    def transform(self, X):
-        X = X.copy()
-        for feature in self.columns_to_scale:
-            if feature in ['circumplex.arousal', 'circumplex.valence']:
-                scaler = self.scalers['StandardScaler']
-            elif feature == 'activity':
-                scaler = self.scalers['MinMaxScaler']
+    def __init__(self):
+        self.scalers = {}
+
+    def fit_transform(self, X):
+        """
+        Fit and transform the input data frame X based on the scaling instructions.
+        """
+        for col in X.columns:
+            if 'mood' in col:
+                continue
+            elif 'circumplex.arousal' in col or 'circumplex.valence' in col:
+                scaler = StandardScaler()
+                X[col] = scaler.fit_transform(X[[col]])
+                self.scalers[col] = scaler
+            elif 'activity' in col:
+                scaler = MinMaxScaler()
+                X[col] = scaler.fit_transform(X[[col]])
+                self.scalers[col] = scaler
+            elif 'screen' in col:
+                scaler = RobustScaler()
+                X[col] = scaler.fit_transform(X[[col]])
+                self.scalers[col] = scaler
+            elif 'call' in col or 'sms' in col:
+                continue
+            elif 'appCat' in col:
+                scaler = RobustScaler()
+                X[col] = scaler.fit_transform(X[[col]])
+                self.scalers[col] = scaler
             else:
-                scaler = self.scalers['RobustScaler']
-
-            X[feature] = scaler.fit_transform(X[[feature]])
+                continue
         return X
 
-    def fit_transform(self):
-        X = self.data.drop(['mood'], axis=1)
-        y = self.data['mood']
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=6)
-        X_train = self.transform(X_train)
-        X_test = self.transform(X_test)
-        return X_train, X_test, y_train, y_test
-
-
-
-
-# # Imputing with KNNImputer
-# from sklearn.impute import KNNImputer
-# from sklearn.preprocessing import MinMaxScaler
-
-# #Define a subset of the dataset
-# df_knn = new_df.filter(['circumplex.valence','appCat.utilities','circumplex.arousal'], axis=1).copy()
-
-# # Define KNN imputer and fill missing values
-# knn_imputer = KNNImputer(n_neighbors=5, weights='uniform', metric='nan_euclidean')
-# df_knn_imputed = pd.DataFrame(knn_imputer.fit_transform(df_knn), columns=df_knn.columns)
-
-# fig = plt.Figure()
-# null_values = new_df['appCat.utilities'].isnull() 
-# fig = df_knn_imputed.plot(x='circumplex.valence', y='appCat.utilities', kind='scatter', c=null_values, cmap='winter', title='KNN Imputation', colorbar=False)
-# plt.show()
-
-
-
-# # Imputing with MICE
-# from sklearn.experimental import enable_iterative_imputer
-# from sklearn.impute import IterativeImputer
-# from sklearn.linear_model import BayesianRidge
-
-# df_mice = new_df.filter(['circumplex.valence','appCat.utilities','circumplex.arousal'], axis=1).copy()
-
-# # Define MICE Imputer and fill missing values
-# mice_imputer = IterativeImputer(estimator=BayesianRidge(), n_nearest_features=None, imputation_order='ascending')
-# df_mice_imputed = pd.DataFrame(mice_imputer.fit_transform(df_mice), columns=df_mice.columns)
-
-# fig = plt.Figure()
-# null_values = new_df['appCat.utilities'].isnull() 
-# fig = df_mice_imputed.plot(x='circumplex.valence', y='appCat.utilities', kind='scatter', c=null_values, cmap='winter', title='KNN Imputation', colorbar=False)
-# plt.show()
-
-
-
-
-
-# # Count the number of missing values in each column per id in new_df
-# missing_values_per_id = new_df.groupby('id').apply(lambda x: x.isnull().sum()).iloc[:, 2:]
-
-# pd.DataFrame(missing_values_per_id).head(10)
-
-# # Calculate the percentage of missing values in each column per id in new_df
-# missing_values_per_idP = new_df.groupby('id').apply(lambda x: x.isnull().sum() / x.shape[0] * 100).iloc[:, 2:]
-# pd.DataFrame(missing_values_per_idP)
-
-# # for each id separately, plot the percentage of missing values in each column where each bar represents a column
-# for id in missing_values_per_idP.index:
-#     missing_values_per_idP.loc[id].plot(kind='bar', title=f'Percentage of missing values for id {id}')
-#     plt.show()
-
-
-
-
-# import pandas as pd
-# from sklearn.ensemble import RandomForestRegressor
-# from sklearn.metrics import r2_score
-# from sklearn.metrics import mean_squared_error
-# from ImputeKNN import ImputeKNN
-# from ImputeIterative import ImputeIterative
-
-# # Define the columns to impute
-# cols_to_impute = clean_data.iloc[:,2:].columns
-
-# # Create an instance of the KNN Imputation class
-# knn_imputer = ImputeKNN(clean_data, cols_to_impute)
-
-# # Impute missing values using KNN and join the imputed data to the original DataFrame
-# knn_imputed_data = knn_imputer.join2full(clean_data)
-
-# # Create an instance of the Iterative Imputation class
-# iterative_imputer = ImputeIterative(clean_data, cols_to_impute)
-
-# # Impute missing values using Iterative Imputation and join the imputed data to the original DataFrame
-# iterative_imputed_data = iterative_imputer.join2full(clean_data)
-
-# # Define the feature and target columns for the Random Forest Regressor
-# X_cols = [col for col in knn_imputed_data.columns if col not in ['id', 'date', 'mood']]
-# y_col = 'mood'
-
-# # Split the data into training and testing sets
-# train_data = knn_imputed_data.dropna()
-# X_train = train_data[X_cols]
-# y_train = train_data[y_col]
-# test_data = clean_data[clean_data[y_col].notna()]
-# X_test = test_data[X_cols]
-# y_test = test_data[y_col]
-
-# # Fit a Random Forest Regressor using the KNN-imputed data and make predictions on the test data
-# rf_knn = RandomForestRegressor(n_estimators=100)
-# rf_knn.fit(X_train, y_train)
-# y_pred_knn = rf_knn.predict(X_test)
-
-# # Fit a Random Forest Regressor using the Iterative Imputed data and make predictions on the test data
-# rf_iterative = RandomForestRegressor(n_estimators=100)
-# rf_iterative.fit(X_train, y_train)
-# y_pred_iterative = rf_iterative.predict(X_test)
-
-# # Calculate the R-squared score for the predictions made using the KNN-imputed data
-# r2_knn = r2_score(y_test, y_pred_knn)
-# mse_knn = mean_squared_error(y_test, y_pred_knn) 
-
-# # Calculate the R-squared score for the predictions made using the Iterative Imputed data
-# r2_iterative = r2_score(y_test, y_pred_iterative)
-# mse_iterative = mean_squared_error(y_test, y_pred_iterative)
-
-# # Print the R-squared scores for both imputers
-# print(f"R-squared score for KNN-imputed data: {r2_knn}")
-# print(f"R-squared score for Iterative Imputed data: {r2_iterative}")
-
-# print(f"Mean Squared Error for KNN-imputed data: {mse_knn}")
-# print(f"Mean Squared Error for Iterative Imputed data: {mse_iterative}")
-
-
+    def transform(self, X):
+        """
+        Transform the input data frame X based on the scaling instructions.
+        """
+        for col in X.columns:
+            if 'mood' in col:
+                continue
+            elif 'circumplex.arousal' in col or 'circumplex.valence' in col:
+                scaler = self.scalers.get(col)
+                if scaler is None:
+                    raise ValueError("Scaler not fitted for column: {}".format(col))
+                X[col] = scaler.transform(X[[col]])
+            elif 'activity' in col:
+                scaler = self.scalers.get(col)
+                if scaler is None:
+                    raise ValueError("Scaler not fitted for column: {}".format(col))
+                X[col] = scaler.transform(X[[col]])
+            elif 'screen' in col:
+                scaler = self.scalers.get(col)
+                if scaler is None:
+                    raise ValueError("Scaler not fitted for column: {}".format(col))
+                X[col] = scaler.transform(X[[col]])
+            elif 'call' in col or 'sms' in col:
+                continue
+            elif 'appCat' in col:
+                scaler = self.scalers.get(col)
+                if scaler is None:
+                    raise ValueError("Scaler not fitted for column: {}".format(col))
+                X[col] = scaler.transform(X[[col]])
+            else:
+                continue
+        return X
 
